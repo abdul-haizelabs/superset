@@ -217,6 +217,40 @@ describe('dashboardState actions', () => {
       });
     });
 
+    test('should not send empty certified_by/certification_details when fields are undefined', async () => {
+      const { getState, dispatch } = setup();
+      const thunk = saveDashboardRequest(
+        newDashboardData,
+        192,
+        SAVE_TYPE_OVERWRITE,
+      );
+      thunk(dispatch, getState);
+      await waitFor(() => expect(putStub.mock.calls.length).toBe(1));
+      const putBody = JSON.parse(putStub.mock.calls[0][0].body);
+      expect(putBody).not.toHaveProperty('certified_by');
+      expect(putBody).not.toHaveProperty('certification_details');
+    });
+
+    test('should preserve certified_by/certification_details when explicitly set', async () => {
+      const { getState, dispatch } = setup();
+      const dataWithCertification = {
+        ...newDashboardData,
+        certified_by: 'Admin User',
+        certification_details: 'Approved Q1',
+      };
+
+      const thunk = saveDashboardRequest(
+        dataWithCertification,
+        192,
+        SAVE_TYPE_OVERWRITE,
+      );
+      thunk(dispatch, getState);
+      await waitFor(() => expect(putStub.mock.calls.length).toBe(1));
+      const putBody = JSON.parse(putStub.mock.calls[0][0].body);
+      expect(putBody.certified_by).toBe('Admin User');
+      expect(putBody.certification_details).toBe('Approved Q1');
+    });
+
     test('should navigate to the new dashboard after Save As', async () => {
       const newDashboardId = 999;
       const { getState, dispatch } = setup({
