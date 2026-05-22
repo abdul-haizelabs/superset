@@ -217,6 +217,56 @@ describe('dashboardState actions', () => {
       });
     });
 
+    test('should not include certification fields in PUT payload when undefined (#40192)', async () => {
+      mockIsFeatureEnabled.mockReturnValue(false);
+      const { getState, dispatch } = setup({
+        dashboardState: { hasUnsavedChanges: true },
+      });
+
+      const dataWithoutCertification = {
+        ...newDashboardData,
+        metadata: { color_scheme: 'supersetColors' },
+      };
+
+      const thunk = saveDashboardRequest(
+        dataWithoutCertification,
+        1,
+        SAVE_TYPE_OVERWRITE,
+      );
+      await thunk(dispatch, getState);
+
+      await waitFor(() => expect(putStub.mock.calls.length).toBe(1));
+      const putBody = JSON.parse(putStub.mock.calls[0][0].body);
+      expect(putBody).not.toHaveProperty('certified_by');
+      expect(putBody).not.toHaveProperty('certification_details');
+    });
+
+    test('should preserve certification fields in PUT payload when explicitly set (#40192)', async () => {
+      mockIsFeatureEnabled.mockReturnValue(false);
+      const { getState, dispatch } = setup({
+        dashboardState: { hasUnsavedChanges: true },
+      });
+
+      const dataWithCertification = {
+        ...newDashboardData,
+        certified_by: 'Admin User',
+        certification_details: 'Verified Q1 2024',
+        metadata: { color_scheme: 'supersetColors' },
+      };
+
+      const thunk = saveDashboardRequest(
+        dataWithCertification,
+        1,
+        SAVE_TYPE_OVERWRITE,
+      );
+      await thunk(dispatch, getState);
+
+      await waitFor(() => expect(putStub.mock.calls.length).toBe(1));
+      const putBody = JSON.parse(putStub.mock.calls[0][0].body);
+      expect(putBody.certified_by).toBe('Admin User');
+      expect(putBody.certification_details).toBe('Verified Q1 2024');
+    });
+
     test('should navigate to the new dashboard after Save As', async () => {
       const newDashboardId = 999;
       const { getState, dispatch } = setup({
