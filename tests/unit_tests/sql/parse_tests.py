@@ -2845,6 +2845,38 @@ def test_is_valid_cvas(sql: str, engine: str, expected: bool) -> None:
         ("col1 = 1) AND (col2 = 2", QueryClauseValidationException, "base"),
         ("(col1 = 1)) AND ((col2 = 2)", QueryClauseValidationException, "base"),
         ("TRUE; SELECT 1", QueryClauseValidationException, "base"),
+        # Regression tests for #39223: DISTINCT_AVG / DISTINCT_SUM must not be
+        # rewritten into a CASE/tuple construct by dialects with
+        # MULTI_ARG_DISTINCT=False (e.g. PostgreSQL, Presto, DuckDB).
+        (
+            "SELECT DISTINCT_AVG(DISTINCT report_id, (time_to_accept) / 86400)",
+            "SELECT DISTINCT_AVG(DISTINCT report_id, (time_to_accept) / 86400)",
+            "postgresql",
+        ),
+        (
+            "SELECT DISTINCT_SUM(DISTINCT report_id, total_bounty_reward_amount)",
+            "SELECT DISTINCT_SUM(DISTINCT report_id, total_bounty_reward_amount)",
+            "postgresql",
+        ),
+        (
+            "SELECT DISTINCT_AVG(DISTINCT report_id, (time_to_accept) / 86400)",
+            "SELECT DISTINCT_AVG(DISTINCT report_id, (time_to_accept) / 86400)",
+            "presto",
+        ),
+        (
+            "SELECT DISTINCT_AVG(DISTINCT report_id, (time_to_accept) / 86400)",
+            "SELECT DISTINCT_AVG(DISTINCT report_id,"
+            " (time_to_accept) / NULLIF(86400, 0))",
+            "duckdb",
+        ),
+        # COUNT(DISTINCT ...) with multiple args should still use CASE/tuple
+        # for PostgreSQL (this is the correct behavior for COUNT).
+        (
+            "SELECT COUNT(DISTINCT a, b)",
+            "SELECT COUNT(DISTINCT CASE WHEN a IS NULL THEN NULL"
+            " WHEN b IS NULL THEN NULL ELSE (a, b) END)",
+            "postgresql",
+        ),
     ],
 )
 def test_sanitize_clause(sql: str, expected: str | Exception, engine: str) -> None:

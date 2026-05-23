@@ -1619,6 +1619,60 @@ def process_jinja_sql(
     return JinjaSQLResult(script=parsed_script, tables=tables)
 
 
+def _has_anonymous_multi_arg_distinct(ast: exp.Expression) -> bool:
+    """
+    Check if the AST contains an Anonymous (custom) function with a
+    multi-argument DISTINCT clause.
+
+    Dialects with MULTI_ARG_DISTINCT=False (e.g. PostgreSQL, Presto, Trino,
+    DuckDB) transform ``FUNC(DISTINCT a, b)`` into a CASE/tuple construct that
+    only works for known aggregates like COUNT.  Custom functions such as
+    DISTINCT_AVG or DISTINCT_SUM expect their arguments to be passed through
+    unchanged.
+    """
+    for node in ast.walk():
+        if isinstance(node, exp.Anonymous):
+            for arg in node.expressions:
+                if isinstance(arg, exp.Distinct) and len(arg.expressions) > 1:
+                    return True
+    return False
+
+
+def _generate_with_safe_distinct(
+    parsed: exp.Expression,
+    dialect: str | None,
+) -> str:
+    """
+    Generate SQL from a parsed AST, preserving multi-argument DISTINCT inside
+    custom (Anonymous) functions.
+
+    For dialects that set MULTI_ARG_DISTINCT=False, the default code generator
+    rewrites ``FUNC(DISTINCT col1, col2)`` into a CASE/tuple expression.  That
+    rewrite is correct for built-in aggregates like COUNT but breaks custom UDFs
+    (e.g. DISTINCT_AVG, DISTINCT_SUM) that rely on receiving separate arguments.
+    This helper dynamically creates a generator subclass that skips the
+    transformation when the DISTINCT clause is inside an Anonymous function node.
+    """
+    dialect_obj = Dialect.get_or_raise(dialect)
+    base_gen_class = type(dialect_obj).Generator
+
+    class _SafeDistinctGenerator(base_gen_class):  # type: ignore[misc, valid-type]
+        def distinct_sql(self, expression: exp.Distinct) -> str:
+            if (
+                isinstance(expression.parent, exp.Anonymous)
+                and len(expression.expressions) > 1
+            ):
+                this = self.expressions(expression, flat=True)
+                this = f" {this}" if this else ""
+                on = self.sql(expression, "on")
+                on = f" ON {on}" if on else ""
+                return f"DISTINCT{this}{on}"
+            return super().distinct_sql(expression)
+
+    gen = _SafeDistinctGenerator(comments=True, pretty=False)
+    return gen.generate(parsed, copy=True)
+
+
 def sanitize_clause(clause: str, engine: str) -> str:
     """
     Make sure the SQL clause is valid.
@@ -1626,10 +1680,13 @@ def sanitize_clause(clause: str, engine: str) -> str:
     try:
         statement = SQLStatement(clause, engine)
         dialect = SQLGLOT_DIALECTS.get(engine)
-        from sqlglot.dialects.dialect import Dialect
+        parsed = statement._parsed  # pylint: disable=protected-access
+
+        if _has_anonymous_multi_arg_distinct(parsed):
+            return _generate_with_safe_distinct(parsed, dialect)
 
         return Dialect.get_or_raise(dialect).generate(
-            statement._parsed,  # pylint: disable=protected-access
+            parsed,
             copy=True,
             comments=True,
             pretty=False,
