@@ -217,6 +217,46 @@ describe('dashboardState actions', () => {
       });
     });
 
+    test('should not include certification fields in PUT body when undefined during overwrite', async () => {
+      const { getState, dispatch } = setup();
+      const dataWithoutCertification = {
+        ...newDashboardData,
+        certified_by: undefined,
+        certification_details: undefined,
+      };
+      const thunk = saveDashboardRequest(
+        dataWithoutCertification,
+        1,
+        SAVE_TYPE_OVERWRITE,
+      );
+      thunk(dispatch, getState);
+      await waitFor(() => expect(putStub.mock.calls.length).toBe(1));
+      const { body } = putStub.mock.calls[0][0];
+      const parsed = JSON.parse(body);
+      expect(parsed).not.toHaveProperty('certified_by');
+      expect(parsed).not.toHaveProperty('certification_details');
+    });
+
+    test('should preserve certification fields in PUT body when explicitly set', async () => {
+      const { getState, dispatch } = setup();
+      const dataWithCertification = {
+        ...newDashboardData,
+        certified_by: 'John Doe',
+        certification_details: 'Approved Q1',
+      };
+      const thunk = saveDashboardRequest(
+        dataWithCertification,
+        1,
+        SAVE_TYPE_OVERWRITE,
+      );
+      thunk(dispatch, getState);
+      await waitFor(() => expect(putStub.mock.calls.length).toBe(1));
+      const { body } = putStub.mock.calls[0][0];
+      const parsed = JSON.parse(body);
+      expect(parsed.certified_by).toBe('John Doe');
+      expect(parsed.certification_details).toBe('Approved Q1');
+    });
+
     test('should navigate to the new dashboard after Save As', async () => {
       const newDashboardId = 999;
       const { getState, dispatch } = setup({
