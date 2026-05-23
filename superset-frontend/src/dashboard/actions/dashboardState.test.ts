@@ -217,6 +217,50 @@ describe('dashboardState actions', () => {
       });
     });
 
+    test('should not clear certification fields when they are undefined in dashboard data', async () => {
+      mockIsFeatureEnabled.mockReturnValue(false);
+      const { getState, dispatch } = setup();
+      const dashboardDataWithoutCert = {
+        ...newDashboardData,
+      };
+      delete dashboardDataWithoutCert.certified_by;
+      delete dashboardDataWithoutCert.certification_details;
+
+      const thunk = saveDashboardRequest(
+        dashboardDataWithoutCert,
+        192,
+        SAVE_TYPE_OVERWRITE,
+      );
+      thunk(dispatch, getState);
+
+      await waitFor(() => expect(putStub.mock.calls.length).toBe(1));
+      const putBody = JSON.parse(putStub.mock.calls[0][0].body);
+      expect(putBody).not.toHaveProperty('certified_by');
+      expect(putBody).not.toHaveProperty('certification_details');
+    });
+
+    test('should preserve certification fields when they are explicitly provided', async () => {
+      mockIsFeatureEnabled.mockReturnValue(false);
+      const { getState, dispatch } = setup();
+      const dashboardDataWithCert = {
+        ...newDashboardData,
+        certified_by: 'Admin User',
+        certification_details: 'Verified Q1 2024',
+      };
+
+      const thunk = saveDashboardRequest(
+        dashboardDataWithCert,
+        192,
+        SAVE_TYPE_OVERWRITE,
+      );
+      thunk(dispatch, getState);
+
+      await waitFor(() => expect(putStub.mock.calls.length).toBe(1));
+      const putBody = JSON.parse(putStub.mock.calls[0][0].body);
+      expect(putBody.certified_by).toBe('Admin User');
+      expect(putBody.certification_details).toBe('Verified Q1 2024');
+    });
+
     test('should navigate to the new dashboard after Save As', async () => {
       const newDashboardId = 999;
       const { getState, dispatch } = setup({
